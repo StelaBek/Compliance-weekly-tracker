@@ -11,7 +11,9 @@ FINDING_COLUMNS = [
     "compliance_deadline","legislative_status","instrument_type","compliance_domain","category",
     "subcategory","affected_parties","key_obligations","key_changes","business_impact",
     "recommended_follow_up","confidence_score","evidence_excerpt","retrieved_at","finding_summary","ai_summary",
-    "ai_analysis","user_notes"
+    "ai_analysis","user_notes",
+    "publication_update_date","effective_application_date","scope","summary",
+    "legislation","status","business_action"
 ]
 SOURCE_COLUMNS = [
     "id","jurisdiction","authority","name","url","source_type","language","verification_status",
@@ -44,7 +46,9 @@ def init_db(path: Path | str = DB_PATH):
                 compliance_domain TEXT, category TEXT, subcategory TEXT, affected_parties TEXT,
                 key_obligations TEXT, key_changes TEXT, business_impact TEXT, recommended_follow_up TEXT,
                 confidence_score REAL, evidence_excerpt TEXT, retrieved_at TEXT, finding_summary TEXT, ai_summary TEXT,
-                ai_analysis TEXT, user_notes TEXT, updated_at TEXT NOT NULL
+                ai_analysis TEXT, user_notes TEXT, publication_update_date TEXT,
+                effective_application_date TEXT, scope TEXT, summary TEXT, legislation TEXT,
+                status TEXT, business_action TEXT, updated_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS finding_versions (
                 version_id INTEGER PRIMARY KEY AUTOINCREMENT, finding_id TEXT NOT NULL, field_name TEXT NOT NULL,
@@ -64,6 +68,8 @@ def init_db(path: Path | str = DB_PATH):
         _ensure_column(con, "sources", "discovered_automatically", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(con, "sources", "discovery_reason", "TEXT")
         _ensure_column(con, "findings", "finding_summary", "TEXT")
+        for column in ["publication_update_date","effective_application_date","scope","summary","legislation","status","business_action"]:
+            _ensure_column(con, "findings", column, "TEXT")
 
 
 def _now():

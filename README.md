@@ -132,3 +132,15 @@ The tracker now checks **European Union-level sources plus every EU Member State
 Every ingested finding receives a conservative **one-paragraph summary** built only from retrieved source evidence. If the retrieved evidence is too thin, the summary says that the primary source must be reviewed instead of inventing missing details.
 
 The Streamlit application performs a due weekly check when it is active. For a truly unattended scan even when nobody opens the app, add the included `weekly-scan.yml` to `.github/workflows/weekly-scan.yml` in GitHub and add `TAVILY_API_KEY` as a GitHub Actions repository secret. The workflow runs every Monday and commits the updated `compliance.db`, which causes the deployed Streamlit app to pick up the new findings.
+
+## Current-week reporting contract (2026 onward)
+
+The tracker now reports **only verified material developments from the current ISO reporting week (Monday through the run date), never before 1 January 2026**. Historic legislation is not added merely because it remains in force. An older instrument can appear only when the current reporting week contains a material new event such as publication, amendment, adoption, official update, implementing/delegated act, official guidance, enforcement development, or a new compliance/transition milestone.
+
+A finding is created only when the monitor can verify all three of these from an official-source search result or page: **publication/update date**, **legal reference**, and **official source**. Unverified or out-of-period results are rejected rather than shown.
+
+The weekly report uses these user-facing fields: `title`, `jurisdiction`, `category`, `publication_update_date`, `effective_application_date`, `scope`, `summary`, `legislation`, `source_name`, `source_url`, `status`, and `business_action`. `jurisdiction` is `EU` for EU-level measures and the individual country name for national findings. The jurisdiction filter is dynamic and therefore shows only EU/countries that actually have at least one finding in the current report.
+
+All displayed report text is normalized to English. The `scope` section explains affected products/services, sectors/economic operators, geography and the main compliance requirements supported by the evidence. The `summary` is a short English 2–4 sentence paragraph explaining what changed, why it matters, any supported timing, and the practical next step. Unknown facts remain explicitly unconfirmed rather than being inferred.
+
+The PDF and PowerPoint exports contain the current filtered overview followed by one detail page/slide for every current-week finding, including the required report fields, scope, summary, official source URL and business action.

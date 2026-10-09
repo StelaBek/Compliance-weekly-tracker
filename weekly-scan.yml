@@ -1,7 +1,7 @@
 name: Weekly compliance scan
 on:
   schedule:
-    - cron: "15 5 * * 1"
+    - cron: "15 23 * * 0"
   workflow_dispatch:
 permissions:
   contents: write

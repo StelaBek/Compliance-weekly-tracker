@@ -26,3 +26,7 @@ The UI is intentionally separate from source retrieval and analysis logic. Theme
 ## Flat packaging
 
 All modules are root-level files because this distribution is designed for a flat GitHub upload. Prefixes and descriptive filenames replace folder grouping.
+
+## Weekly recency and verification gate
+
+The ingestion pipeline applies a hard reporting gate before persistence. A result is stored only when: (1) it is relevant to the configured compliance taxonomy, (2) its publication/update date falls inside the current ISO reporting week and is on/after 2026-01-01, (3) a legal reference is extractable from the official evidence, (4) the source is a registered official source or passes the official-domain verification rules, and (5) the evidence indicates a material event such as publication, amendment, adoption, official update, implementing/delegated act, guidance, enforcement development or compliance milestone. This intentionally favors precision over recall.

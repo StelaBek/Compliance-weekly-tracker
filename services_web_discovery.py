@@ -21,6 +21,8 @@ from config_settings import (
     COMPLIANCE_SEARCH_TERMS,
     JURISDICTIONS,
     JURISDICTION_REGISTRY,
+    PRODUCT_CATEGORIES,
+    REPORT_START_DATE,
 )
 from db_repository import (
     get_runtime_state,
@@ -32,8 +34,8 @@ from db_repository import (
 
 USER_AGENT = "ComplianceIntelligence/1.2 (+official-source-monitoring)"
 SEARCH_GROUPS = [
-    "product safety packaging ecodesign batteries EPR digital product passport legislation regulation",
-    "VAT indirect tax customs e-invoicing excise reporting obligation legislation regulation",
+    "published amended adopted officially updated product safety CE marking market surveillance packaging ecodesign batteries EPR digital product passport implementing delegated guidance enforcement deadline",
+    "published amended adopted officially updated VAT indirect tax customs e-invoicing excise reporting implementing guidance enforcement deadline",
 ]
 
 OFFICIAL_DOMAIN_HINTS = (
@@ -61,19 +63,29 @@ MULTILINGUAL_TERMS = [
 RELEVANCE_TERMS = list(dict.fromkeys(COMPLIANCE_SEARCH_TERMS + MULTILINGUAL_TERMS))
 
 CATEGORY_RULES = [
-    ("Packaging", ["packaging", "packaging waste", "plastic tax", "verpakking", "verpakkingen", "verpackung", "emballage", "imballaggi", "envases", "opakowania"]),
-    ("VAT", ["vat", "value added tax", "btw", "iva", "tva", "mehrwertsteuer", "umsatzsteuer"]),
-    ("E-invoicing", ["e-invoicing", "electronic invoicing", "e invoice", "e-invoice"]),
-    ("Customs", ["customs", "import duty", "tariff", "import vat", "douane", "zoll", "dogana", "aduanas", "cło"]),
-    ("EPR", ["extended producer responsibility", "epr"]),
-    ("Product safety", ["product safety", "market surveillance", "productveiligheid", "produktsicherheit", "sécurité des produits", "sicurezza dei prodotti", "seguridad de los productos", "bezpieczeństwo produktów"]),
-    ("Ecodesign", ["ecodesign", "energy labelling", "energy labeling"]),
-    ("Chemicals", ["reach", "rohs", "restricted substances"]),
-    ("Batteries", ["battery", "batteries"]),
-    ("Digital product passport", ["digital product passport", "dpp"]),
-    ("Labelling", ["labelling", "labeling", "label requirement"]),
-    ("Reporting", ["reporting obligation", "digital reporting", "filing requirement"]),
+    ("General Product Safety", ["general product safety", "gpsr"]),
+    ("Product Safety", ["product safety", "productveiligheid", "produktsicherheit", "sécurité des produits", "sicurezza dei prodotti", "seguridad de los productos", "bezpieczeństwo produktów"]),
+    ("CE Marking", ["ce marking", "ce-marking", "ce mark"]),
+    ("Market Surveillance", ["market surveillance", "market-surveillance"]),
+    ("Machinery", ["machinery", "machine regulation", "maschinen", "machines"]),
+    ("Electrical Safety / LVD", ["low voltage directive", "lvd", "electrical safety"]),
+    ("EMC", ["electromagnetic compatibility", " emc "] ),
+    ("Radio Equipment", ["radio equipment", "red directive"]),
+    ("Batteries", ["battery", "batteries", "battery regulation"]),
+    ("Ecodesign", ["ecodesign", "eco-design"]),
+    ("Energy Labelling", ["energy labelling", "energy labeling"]),
+    ("Construction Products", ["construction products", "construction product regulation", "cpr"]),
+    ("Chemicals / REACH", ["reach", "chemical restriction", "chemicals"]),
+    ("RoHS", ["rohs", "restriction of hazardous substances"]),
+    ("Packaging", ["packaging", "packaging waste", "verpakking", "verpakkingen", "verpackung", "emballage", "imballaggi", "envases", "opakowania", "ppwr"]),
+    ("Waste / EPR", ["extended producer responsibility", "epr", "waste", "producer responsibility"]),
+    ("Digital Product Passport", ["digital product passport", "dpp"]),
+    ("Consumer Protection", ["consumer protection", "consumer rights"]),
+    ("Cybersecurity", ["cybersecurity", "cyber resilience", "cra regulation"]),
+    ("Sustainability", ["sustainability", "sustainable products"]),
+    ("Environmental Compliance", ["environmental compliance", "environmental requirement", "emissions"]),
 ]
+
 
 @dataclass
 class SearchHit:
@@ -135,6 +147,151 @@ def _normalise_date(value: str | None) -> str | None:
         return dt.date().isoformat()
     except Exception:
         return None
+
+
+
+def reporting_window(now: datetime | None = None) -> tuple[str, str]:
+    """Return the current ISO reporting week (Monday through today), never before 2026-01-01."""
+    now = now or datetime.now(timezone.utc)
+    today = now.date()
+    monday = today - timedelta(days=today.weekday())
+    floor = datetime.fromisoformat(REPORT_START_DATE).date()
+    if monday < floor:
+        monday = floor
+    return monday.isoformat(), today.isoformat()
+
+
+def _parse_iso_date(value: str | None):
+    value = _normalise_date(value)
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value).date()
+    except Exception:
+        return None
+
+
+def _date_in_reporting_week(value: str | None) -> bool:
+    d = _parse_iso_date(value)
+    if d is None:
+        return False
+    start, end = reporting_window()
+    return datetime.fromisoformat(start).date() <= d <= datetime.fromisoformat(end).date()
+
+
+def _extract_date_from_text(text: str) -> str | None:
+    text = _clean_sentence_text(text)
+    patterns = [
+        r"\b(20\d{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])\b",
+        r"\b(0?[1-9]|[12]\d|3[01])[-/](0?[1-9]|1[0-2])[-/](20\d{2})\b",
+    ]
+    for i, pattern in enumerate(patterns):
+        m = re.search(pattern, text)
+        if m:
+            if i == 0:
+                y, mo, d = map(int, m.groups())
+            else:
+                d, mo, y = map(int, m.groups())
+            try:
+                return datetime(y, mo, d).date().isoformat()
+            except ValueError:
+                pass
+    months = {m.lower(): i for i, m in enumerate(["January","February","March","April","May","June","July","August","September","October","November","December"], 1)}
+    m = re.search(r"\b(0?[1-9]|[12]\d|3[01])\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})\b", text, flags=re.I)
+    if m:
+        try:
+            return datetime(int(m.group(3)), months[m.group(2).lower()], int(m.group(1))).date().isoformat()
+        except ValueError:
+            pass
+    return None
+
+
+def _extract_legal_reference(text: str) -> str | None:
+    """Conservative legal-reference extractor. Findings without a verifiable reference are rejected."""
+    text = _clean_sentence_text(text)
+    patterns = [
+        r"\b(?:Commission\s+)?(?:Delegated\s+|Implementing\s+)?(?:Regulation|Directive|Decision)\s*\((?:EU|EC|EEC)\)\s*(?:No\.?\s*)?\d{4}/\d{1,5}\b",
+        r"\b(?:Regulation|Directive|Decision)\s*\((?:EU|EC|EEC)\)\s*\d{4}/\d{1,5}\b",
+        r"\bCELEX[:\s]*[0-9A-Z]{8,14}\b",
+        r"\b(?:Act|Law|Decree|Regulation|Order|Ordinance|Statutory Instrument|S\.?I\.?)\s+(?:No\.?\s*)?\d{1,5}(?:[/.-]\d{2,4})?\b",
+        r"\b(?:No\.?|Nr\.?|N°)\s*\d{1,5}[/-]20\d{2}\b",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text, flags=re.I)
+        if m:
+            return m.group(0).strip()
+    return None
+
+
+def _material_update_type(text: str) -> str | None:
+    lower = text.lower()
+    mapping = [
+        ("Amended", ["amend", "corrigendum", "revised", "modif", "änder", "wijzig"]),
+        ("Adopted", ["adopted", "approved", "adoption"]),
+        ("Published", ["published", "publication", "official journal", "official gazette"]),
+        ("Official guidance", ["guidance", "guideline", "official guidance", "faq"]),
+        ("Implementing act", ["implementing act", "implementing regulation", "implementing decision"]),
+        ("Delegated act", ["delegated act", "delegated regulation", "delegated decision"]),
+        ("Enforcement development", ["enforcement", "market surveillance action", "penalty", "sanction"]),
+        ("Compliance milestone", ["deadline", "transition period", "transitional period", "becomes applicable", "application date", "enters into force", "entry into force"]),
+        ("Official update", ["updated", "update", "new version"]),
+    ]
+    for label, terms in mapping:
+        if any(term in lower for term in terms):
+            return label
+    return None
+
+
+def _extract_effective_application_date(text: str) -> str | None:
+    lower = text.lower()
+    anchors = ["applicable from", "applies from", "application date", "enter into force", "enters into force", "effective from", "deadline", "transition period"]
+    for anchor in anchors:
+        pos = lower.find(anchor)
+        if pos >= 0:
+            date = _extract_date_from_text(text[pos:pos+260])
+            if date and date >= REPORT_START_DATE:
+                return date
+    return None
+
+
+def _scope_from_evidence(text: str, jurisdiction: str, category: str) -> str:
+    lower = text.lower()
+    operators = []
+    pairs = [
+        ("manufacturers", ["manufacturer", "manufacturers"]),
+        ("importers", ["importer", "importers"]),
+        ("distributors", ["distributor", "distributors"]),
+        ("authorised representatives", ["authorised representative", "authorized representative"]),
+        ("fulfilment service providers", ["fulfilment service provider", "fulfillment service provider"]),
+        ("online marketplaces", ["online marketplace", "marketplace provider"]),
+        ("retailers", ["retailer", "retailers"]),
+    ]
+    for label, words in pairs:
+        if any(w in lower for w in words):
+            operators.append(label)
+    obligations = []
+    for label, words in [
+        ("testing", ["test", "testing"]), ("labelling", ["label", "labelling", "labeling"]),
+        ("documentation", ["documentation", "technical file", "declaration of conformity"]),
+        ("registration", ["register", "registration"]), ("reporting", ["reporting", "report"]),
+        ("sustainability", ["sustainability", "ecodesign", "environmental"]),
+        ("safety", ["safety", "hazard", "risk"]), ("market surveillance", ["market surveillance"]),
+        ("restrictions", ["restriction", "prohibit", "ban"]),
+    ]:
+        if any(w in lower for w in words):
+            obligations.append(label)
+    op_text = ", ".join(operators) if operators else "the affected economic operators identified in the official source"
+    obligation_text = ", ".join(obligations) if obligations else "the compliance obligations described in the official source"
+    geo = "the European Union" if jurisdiction == "European Union" else jurisdiction
+    return f"Applies to products or services within the {category} area where covered by the cited measure, in {geo}. The available official-source evidence identifies or may affect {op_text}. The material update concerns {obligation_text}; any product-level exclusions or sector-specific limits must be confirmed in the cited legal text."
+
+
+def _summary_from_evidence(text: str, update_type: str, legislation: str, effective_date: str | None, jurisdiction: str) -> str:
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", _clean_sentence_text(text)) if len(s.strip()) >= 35]
+    evidence_sentence = sentences[0] if sentences else "The official source records a material compliance development during the reporting week."
+    deadline = f" A confirmed effective, application or transition date is {effective_date}." if effective_date else " No effective or application date is treated as confirmed unless it is stated in the cited source."
+    next_step = " Companies should review applicability, affected products and operational obligations against the cited official text and update compliance plans where necessary."
+    return f"{legislation} was identified as a {update_type.lower()} affecting {jurisdiction}. {evidence_sentence}{deadline}{next_step}"
 
 
 def _search_tavily(query: str, max_results: int, include_domains: list[str] | None = None) -> list[SearchHit]:
@@ -367,7 +524,9 @@ def _source_for_hit(hit: SearchHit, jurisdiction: str, geographic_level: str) ->
         host = _host(hit.url)
         if not (host.endswith("europa.eu") or host.endswith("eur-lex.europa.eu")):
             return None
-    elif not _likely_official_hit(hit, jurisdiction):
+    elif not _looks_official_domain(hit.url):
+        # For new national sources, require an official/government domain signal.
+        # Textual clues alone are not enough to create a verified finding.
         return None
     host = _host(hit.url)
     if not host:
@@ -375,9 +534,9 @@ def _source_for_hit(hit: SearchHit, jurisdiction: str, geographic_level: str) ->
     sid = "AUTO-" + sha256((jurisdiction + host).encode("utf-8")).hexdigest()[:18].upper()
     source = {
         "id": sid, "jurisdiction": jurisdiction, "authority": "Official authority - verify exact issuer",
-        "name": hit.title[:180] or host, "url": f"{urlparse(hit.url).scheme or 'https'}://{host}/",
+        "name": f"Official source — {host}", "url": f"{urlparse(hit.url).scheme or 'https'}://{host}/",
         "source_type": "Automatically discovered official-source candidate", "language": "Unknown",
-        "verification_status": "likely official source", "retrieval_method": "Weekly web discovery",
+        "verification_status": "verified official source", "retrieval_method": "Weekly web discovery",
         "active": True, "last_success": _now(), "last_failure": None, "error_state": None,
         "last_checked": _now(), "discovered_automatically": True,
         "discovery_reason": f"Automatically selected during the weekly {jurisdiction} scan because the result showed official/government source signals. Review remains available in Sources.",
@@ -386,27 +545,108 @@ def _source_for_hit(hit: SearchHit, jurisdiction: str, geographic_level: str) ->
     return source
 
 
+def _business_action_for(category: str, update_type: str) -> str:
+    actions = {
+        "Product Safety": "Review product risk assessments, technical documentation and corrective-action processes for affected products.",
+        "General Product Safety": "Confirm GPSR applicability, responsible-person information, traceability and online product information for affected consumer products.",
+        "CE Marking": "Review conformity-assessment routes, declarations of conformity, technical files and CE-marking requirements.",
+        "Market Surveillance": "Review evidence packs, authority-response procedures, traceability and corrective-action readiness.",
+        "Machinery": "Assess machinery scope, conformity assessment, technical documentation and instructions against the updated requirements.",
+        "Electrical Safety / LVD": "Review electrical-safety conformity evidence, standards, testing and declarations for affected electrical products.",
+        "EMC": "Review EMC testing, standards, technical documentation and declarations for affected equipment.",
+        "Radio Equipment": "Review RED applicability, testing, software/cyber requirements and conformity documentation for radio equipment.",
+        "Batteries": "Assess battery scope, labelling, due-diligence, information, registration and passport obligations where applicable.",
+        "Ecodesign": "Assess affected product groups, performance requirements, information obligations and implementation timelines.",
+        "Energy Labelling": "Review energy-label, product-database and supplier/dealer information requirements for affected products.",
+        "Construction Products": "Review CPR scope, declarations, product information and conformity requirements for affected construction products.",
+        "Chemicals / REACH": "Check substances, restrictions, candidate-list or authorisation impacts and update supplier/product documentation where necessary.",
+        "RoHS": "Check restricted-substance limits, exemptions, technical evidence and declarations for affected EEE.",
+        "Packaging": "Review packaging composition, labelling, recyclability, registration and reporting obligations for affected markets.",
+        "Waste / EPR": "Review producer-registration, reporting, take-back and fee obligations for affected products and packaging streams.",
+        "Digital Product Passport": "Assess product scope, data fields, identifiers, data carriers, system ownership and implementation timing.",
+        "Consumer Protection": "Review customer information, sales practices, product claims and consumer-facing processes affected by the update.",
+        "Cybersecurity": "Review product cybersecurity requirements, vulnerability handling, documentation and conformity obligations.",
+        "Sustainability": "Assess sustainability information, performance, substantiation and supply-chain evidence requirements.",
+        "Environmental Compliance": "Assess environmental restrictions, reporting, documentation and operational controls affected by the measure.",
+    }
+    base = actions.get(category, "Review applicability, affected products, required controls and implementation timing against the cited official source.")
+    return f"{base} Record the {update_type.lower()} in the compliance change log and assign an owner if action is required."
+
+
 def _finding_from_page(page: dict, source: dict) -> dict | None:
-    combined = f"{page.get('title','')} {page.get('text','')}"
+    """Build a finding only when recency, official source, date and legal reference are verifiable."""
+    combined = _clean_sentence_text(f"{page.get('title','')} {page.get('text','')}")
     score, category, domain = _relevance(combined)
-    if score < 0.42: return None
-    url = page["url"]
+    if score < 0.42:
+        return None
+
+    url = page.get("url") or ""
+    if not url or not source.get("name"):
+        return None
+
+    publication_update_date = _normalise_date(page.get("publication_date")) or _extract_date_from_text(combined)
+    if not publication_update_date or publication_update_date < REPORT_START_DATE or not _date_in_reporting_week(publication_update_date):
+        return None
+
+    legislation = _extract_legal_reference(combined)
+    if not legislation:
+        return None
+
+    update_type = _material_update_type(combined)
+    if not update_type:
+        return None
+
+    effective_application_date = _extract_effective_application_date(combined)
     jurisdiction = source.get("jurisdiction") or "Unknown"
+    geographic_level = "EU" if jurisdiction == "European Union" else "National"
+    if category not in PRODUCT_CATEGORIES:
+        category = "Other"
+
+    scope = _scope_from_evidence(combined, jurisdiction, category)
+    summary = _summary_from_evidence(combined, update_type, legislation, effective_application_date, "EU" if geographic_level == "EU" else jurisdiction)
+    title = f"{legislation} — {category} {update_type.lower()}"
+    business_action = _business_action_for(category, update_type)
+    evidence = _evidence_excerpt(page.get("text") or combined)
+
     return {
-        "id": "WEB-" + sha256(url.encode("utf-8", errors="ignore")).hexdigest()[:20].upper(),
-        "is_demo": False, "jurisdiction": jurisdiction,
-        "geographic_level": "EU" if jurisdiction == "European Union" else "National",
-        "authority": source.get("authority") or "Unknown", "source_name": source.get("name") or _host(url),
-        "source_url": url, "original_title": page.get("title") or url, "english_title": page.get("title") or url,
-        "original_language": source.get("language") or "Unknown", "publication_date": page.get("publication_date"),
-        "effective_date": None, "compliance_deadline": None, "legislative_status": "Unknown",
-        "instrument_type": _instrument_type(page.get("title") or ""), "compliance_domain": domain,
-        "category": category, "subcategory": None, "affected_parties": None, "key_obligations": None,
-        "key_changes": "Live official-source result matched the compliance taxonomy. Review the cited source for the exact legal change.",
-        "business_impact": "Informational", "recommended_follow_up": "Review applicability and confirm obligations, dates and scope against the official source.",
-        "confidence_score": round(score, 2), "evidence_excerpt": _evidence_excerpt(page.get("text") or ""), "retrieved_at": _now(),
-        "finding_summary": _one_paragraph_summary(page, source, category, domain),
-        "ai_summary": "", "ai_analysis": "", "user_notes": "",
+        "id": "WEB-" + sha256((jurisdiction + legislation + publication_update_date + url).encode("utf-8", errors="ignore")).hexdigest()[:20].upper(),
+        "is_demo": False,
+        "jurisdiction": "EU" if geographic_level == "EU" else jurisdiction,
+        "geographic_level": geographic_level,
+        "authority": source.get("authority") or "Official authority",
+        "source_name": source.get("name") or _host(url),
+        "source_url": url,
+        "original_title": page.get("title") or legislation,
+        "english_title": title,
+        "original_language": source.get("language") or "Unknown",
+        "publication_date": publication_update_date,
+        "effective_date": effective_application_date,
+        "compliance_deadline": effective_application_date if update_type == "Compliance milestone" else None,
+        "legislative_status": update_type,
+        "instrument_type": _instrument_type(combined),
+        "compliance_domain": domain,
+        "category": category,
+        "subcategory": None,
+        "affected_parties": scope,
+        "key_obligations": scope,
+        "key_changes": summary,
+        "business_impact": "Informational",
+        "recommended_follow_up": business_action,
+        "confidence_score": round(score, 2),
+        "evidence_excerpt": evidence,
+        "retrieved_at": _now(),
+        "finding_summary": summary,
+        "ai_summary": "",
+        "ai_analysis": "",
+        "user_notes": "",
+        # New report contract fields requested by the tracker specification.
+        "publication_update_date": publication_update_date,
+        "effective_application_date": effective_application_date,
+        "scope": scope,
+        "summary": summary,
+        "legislation": legislation,
+        "status": update_type,
+        "business_action": business_action,
     }
 
 
@@ -485,32 +725,38 @@ def ingest_registered_sources() -> dict:
 
 
 def scan_all_jurisdictions() -> dict:
-    """Search every required jurisdiction on every weekly cycle.
-
-    EU results are accepted only from EU institutional domains. National results
-    are tagged National and kept separate from EU-level instruments.
-    """
+    """Search EU and every national jurisdiction for material changes in the current reporting week."""
     total_findings = 0
     total_hits = 0
+    rejected_unverified = 0
     providers = set()
     jurisdiction_reports = []
-    product_query = "product safety packaging ecodesign batteries EPR CE marking digital product passport legislation regulation"
-    tax_query = "VAT indirect tax customs excise e-invoicing digital reporting legislation regulation"
+    week_start, week_end = reporting_window()
+
+    event_terms = (
+        "published amended adopted officially updated implementing act delegated act official guidance "
+        "enforcement development compliance deadline transition milestone enters into force applicable"
+    )
+    product_terms = (
+        "product safety CE marking market surveillance machinery LVD EMC radio equipment batteries "
+        "ecodesign energy labelling construction products REACH RoHS packaging EPR digital product passport "
+        "consumer protection cybersecurity sustainability environmental compliance"
+    )
 
     for item in JURISDICTION_REGISTRY:
         jurisdiction = item["name"]
         level = item["level"]
         before = total_findings
-        queries = []
+        display_jurisdiction = "European Union" if level == "EU" else jurisdiction
         if level == "EU":
             queries = [
-                f"European Union official journal {product_query}",
-                f"European Union official journal {tax_query}",
+                f'official EU legislation {event_terms} {product_terms} "{week_start}" "{week_end}"',
+                f'EUR-Lex European Commission delegated implementing guidance {product_terms} {event_terms} {week_start} {week_end}',
             ]
         else:
             queries = [
-                f'official government gazette ministry regulator {product_query} "{jurisdiction}"',
-                f'official government tax customs authority {tax_query} "{jurisdiction}"',
+                f'official government gazette ministry regulator "{jurisdiction}" {event_terms} {product_terms} {week_start} {week_end}',
+                f'official national legislation market surveillance authority "{jurisdiction}" {event_terms} product regulation {week_start} {week_end}',
             ]
 
         seen_urls = set()
@@ -522,29 +768,37 @@ def scan_all_jurisdictions() -> dict:
                 if not hit.url or hit.url in seen_urls:
                     continue
                 seen_urls.add(hit.url)
-                source = _source_for_hit(hit, jurisdiction, level)
+                source = _source_for_hit(hit, display_jurisdiction, level)
                 if not source:
+                    rejected_unverified += 1
                     continue
-                # Force the registry jurisdiction onto auto-discovered sources so
-                # a national result can never be mislabeled as EU-level merely by title.
                 source = dict(source)
-                source["jurisdiction"] = jurisdiction
+                source["jurisdiction"] = display_jurisdiction
                 page = _page_from_search_hit(hit)
                 finding = _finding_from_page(page, source)
                 if finding:
                     finding["geographic_level"] = level
-                    finding["jurisdiction"] = jurisdiction
-                    upsert_finding(finding, change_type="weekly-jurisdiction-scan")
+                    finding["jurisdiction"] = "EU" if level == "EU" else jurisdiction
+                    upsert_finding(finding, change_type="weekly-current-development-scan")
                     total_findings += 1
+                else:
+                    rejected_unverified += 1
         jurisdiction_reports.append({
-            "jurisdiction": jurisdiction, "geographic_level": level,
-            "findings": total_findings - before, "search_results": len(seen_urls),
+            "jurisdiction": "EU" if level == "EU" else jurisdiction,
+            "geographic_level": level,
+            "findings": total_findings - before,
+            "search_results": len(seen_urls),
         })
 
     return {
+        "reporting_week_start": week_start,
+        "reporting_week_end": week_end,
         "jurisdictions_checked": len(JURISDICTION_REGISTRY),
-        "findings": total_findings, "search_hits": total_hits,
-        "providers": sorted(providers), "jurisdiction_reports": jurisdiction_reports,
+        "findings": total_findings,
+        "search_hits": total_hits,
+        "rejected_unverified_or_out_of_period": rejected_unverified,
+        "providers": sorted(providers),
+        "jurisdiction_reports": jurisdiction_reports,
     }
 
 

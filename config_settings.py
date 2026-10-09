@@ -14,9 +14,9 @@ BRAND = {
 IMPACT_ORDER = ["Informational", "Low", "Medium", "High", "Critical"]
 DOMAINS = ["Product compliance", "Tax compliance", "Customs", "Environmental compliance", "Other"]
 STATUSES = [
-    "Proposal", "Consultation", "Adopted", "Published", "Entered into force",
-    "Applicable", "Implementation pending", "National transposition required",
-    "Amended", "Repealed", "Unknown",
+    "Published", "Amended", "Adopted", "Official update", "Implementing act",
+    "Delegated act", "Official guidance", "Enforcement development",
+    "Compliance milestone", "Entered into force", "Applicable", "Unknown",
 ]
 
 AUTO_WEB_DISCOVERY = os.environ.get("AUTO_WEB_DISCOVERY", "true").strip().lower() in {"1", "true", "yes", "on"}
@@ -28,6 +28,17 @@ AUTO_WEB_RESULTS_PER_JURISDICTION = int(os.environ.get("AUTO_WEB_RESULTS_PER_JUR
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "").strip()
 
 # Queries intentionally stay broad. Final ingestion still requires an official/registered source.
+REPORT_START_DATE = "2026-01-01"
+
+PRODUCT_CATEGORIES = [
+    "Product Safety", "CE Marking", "Market Surveillance", "Machinery",
+    "Electrical Safety / LVD", "EMC", "Radio Equipment", "Batteries",
+    "Ecodesign", "Energy Labelling", "Construction Products", "Chemicals / REACH",
+    "RoHS", "Packaging", "Waste / EPR", "Digital Product Passport",
+    "Consumer Protection", "Cybersecurity", "General Product Safety",
+    "Sustainability", "Environmental Compliance", "Other",
+]
+
 COMPLIANCE_SEARCH_TERMS = [
     "product safety", "CE marking", "conformity assessment", "labelling", "packaging",
     "ecodesign", "energy labelling", "REACH", "RoHS", "batteries", "EPR",

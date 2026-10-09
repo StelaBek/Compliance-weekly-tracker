@@ -33,5 +33,12 @@ class Finding:
     ai_summary: str = ""
     ai_analysis: str = ""
     user_notes: str = ""
+    publication_update_date: Optional[str] = None
+    effective_application_date: Optional[str] = None
+    scope: str = ""
+    summary: str = ""
+    legislation: str = ""
+    status: str = "Unknown"
+    business_action: str = ""
     def to_dict(self):
         return asdict(self)

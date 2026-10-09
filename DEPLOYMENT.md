@@ -25,3 +25,7 @@ A local SQLite database may be ephemeral on hosted runtimes. For production, use
 ## Scheduled monitoring
 
 For stronger monitoring guarantees, run `services_web_discovery.run_live_monitoring(force=True)` from an external scheduler or GitHub Action connected to persistent storage. The app itself already performs due monitoring on startup/session access.
+
+## Weekly schedule
+
+The supplied `weekly-scan.yml` is scheduled for **Sunday 23:15 UTC**, so a normal scheduled run covers the completed Monday–Sunday reporting week. Manual runs use Monday through the current run date. Keep `TAVILY_API_KEY` as a GitHub Actions secret. The application preserves older database records for audit/history, but the live UI and exports show only the current reporting week.

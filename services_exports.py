@@ -220,17 +220,47 @@ def _scope_text(row) -> str:
         return "EU — European Union"
     return f"{level} — {jurisdiction}"
 
-def build_pdf(df: pd.DataFrame, ai_portfolio_analysis: str = "", theme: str = "light") -> bytes:
-    """Export the current Overview as a visual dashboard snapshot.
 
-    The PDF intentionally mirrors the visible Overview rather than producing a
-    separate report pack. It uses the same section order and current filtered
-    records shown in Streamlit.
-    """
+def _pdf_finding_page(c, row, theme: str):
+    t = _theme(theme)
+    W, H = 960, 540
+    c.setFillColor(HexColor(t["bg"])); c.rect(0, 0, W, H, fill=1, stroke=0)
+    _pdf_box(c, 26, 466, 908, 54, t["surface"], t["border"], 10)
+    c.setFillColor(HexColor(PURPLE)); c.setFont("Helvetica-Bold", 8); c.drawString(42, 503, "VERIFIED CURRENT-WEEK FINDING")
+    c.setFillColor(HexColor(t["text"])); c.setFont("Helvetica-Bold", 16)
+    _pdf_text(c, _text(row.get("english_title")), 42, 484, 92, font="Helvetica-Bold", size=13, color=t["text"], max_lines=2)
+    fields = [
+        ("Jurisdiction", row.get("jurisdiction")), ("Category", row.get("category")),
+        ("Publication / update date", row.get("publication_update_date")), ("Effective / application date", row.get("effective_application_date")),
+        ("Legislation", row.get("legislation")), ("Status", row.get("status")),
+        ("Source", row.get("source_name")), ("Source URL", row.get("source_url")),
+    ]
+    x1, x2 = 38, 500
+    y = 438
+    for i, (label, value) in enumerate(fields):
+        x = x1 if i % 2 == 0 else x2
+        yy = y - (i // 2) * 34
+        c.setFillColor(HexColor(t["muted"])); c.setFont("Helvetica", 6.3); c.drawString(x, yy, label.upper())
+        _pdf_text(c, _text(value), x, yy-12, 68 if x == x1 else 62, size=7.2, color=t["text"], max_lines=2)
+    c.setFillColor(HexColor(t["text"])); c.setFont("Helvetica-Bold", 10); c.drawString(38, 288, "Scope — what products or services does it apply to?")
+    _pdf_box(c, 38, 198, 884, 76, t["surface"], t["border"], 8)
+    _pdf_text(c, _text(row.get("scope")), 50, 258, 145, size=7, color=t["text"], max_lines=7)
+    c.setFont("Helvetica-Bold", 10); c.setFillColor(HexColor(t["text"])); c.drawString(38, 174, "Summary — what changed and why does it matter?")
+    _pdf_box(c, 38, 84, 884, 76, t["surface"], t["border"], 8)
+    _pdf_text(c, _text(row.get("summary")), 50, 144, 145, size=7, color=t["text"], max_lines=7)
+    c.setFont("Helvetica-Bold", 9); c.setFillColor(HexColor(PURPLE)); c.drawString(38, 60, "BUSINESS ACTION")
+    _pdf_text(c, _text(row.get("business_action")), 138, 60, 120, size=7, color=t["text"], max_lines=3)
+
+
+def build_pdf(df: pd.DataFrame, ai_portfolio_analysis: str = "", theme: str = "light") -> bytes:
+    """Export the current filtered weekly report, followed by one full page per finding."""
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=(960, 540))
     _pdf_dashboard_page(c, df, ai_portfolio_analysis, theme)
     c.showPage()
+    for _, row in df.iterrows():
+        _pdf_finding_page(c, row, theme)
+        c.showPage()
     c.save()
     return buf.getvalue()
 
@@ -344,13 +374,44 @@ def _ppt_dashboard_slide(slide, df: pd.DataFrame, ai: str, theme: str):
         _ppt_text(slide, .35, 6.1, 5, .2, "No AI analysis generated for this view yet.", 6.5, False, t["muted"])
 
 
+
+def _ppt_finding_slide(slide, row, theme: str):
+    t = _theme(theme)
+    bg = slide.background.fill; bg.solid(); bg.fore_color.rgb = _rgb(t["bg"])
+    _ppt_box(slide, .35, .25, 12.63, .75, t["surface"], t["border"])
+    _ppt_text(slide, .55, .39, 4, .18, "VERIFIED CURRENT-WEEK FINDING", 7, True, PURPLE)
+    _ppt_text(slide, .55, .59, 11.8, .30, _text(row.get("english_title")), 16, True, t["text"])
+    fields = [
+        ("Jurisdiction", row.get("jurisdiction")), ("Category", row.get("category")),
+        ("Publication / update date", row.get("publication_update_date")), ("Effective / application date", row.get("effective_application_date")),
+        ("Legislation", row.get("legislation")), ("Status", row.get("status")),
+        ("Source", row.get("source_name")), ("Source URL", row.get("source_url")),
+    ]
+    for i, (label, value) in enumerate(fields):
+        col = i % 2; r = i // 2; x = .45 + col*6.35; y = 1.18 + r*.55
+        _ppt_text(slide, x, y, 2.8, .15, label.upper(), 5.8, True, t["muted"])
+        _ppt_text(slide, x, y+.17, 5.9, .28, _text(value), 7, False, t["text"])
+    _ppt_text(slide, .45, 3.47, 6, .22, "Scope — what products or services does it apply to?", 10, True, t["text"])
+    _ppt_box(slide, .45, 3.76, 12.43, 1.0, t["surface"], t["border"])
+    _ppt_text(slide, .65, 3.94, 12.0, .68, _text(row.get("scope")), 7.1, False, t["text"])
+    _ppt_text(slide, .45, 4.98, 6, .22, "Summary — what changed and why does it matter?", 10, True, t["text"])
+    _ppt_box(slide, .45, 5.28, 12.43, 1.02, t["surface"], t["border"])
+    _ppt_text(slide, .65, 5.46, 12.0, .68, _text(row.get("summary")), 7.1, False, t["text"])
+    _ppt_text(slide, .45, 6.53, 1.6, .18, "BUSINESS ACTION", 6.2, True, PURPLE)
+    _ppt_text(slide, 1.95, 6.50, 10.7, .42, _text(row.get("business_action")), 7, False, t["text"])
+
+
 def build_pptx(df: pd.DataFrame, ai_portfolio_analysis: str = "", theme: str = "light") -> bytes:
-    """Export the current Overview in the same dashboard layout as the PDF."""
+    """Export the current filtered weekly report plus one detail slide per finding."""
     prs = Presentation()
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _ppt_dashboard_slide(slide, df, ai_portfolio_analysis, theme)
+    for _, row in df.iterrows():
+        detail = prs.slides.add_slide(prs.slide_layouts[6])
+        _ppt_finding_slide(detail, row, theme)
     buf = BytesIO()
     prs.save(buf)
     return buf.getvalue()
+
