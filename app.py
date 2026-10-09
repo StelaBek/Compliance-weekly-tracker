@@ -97,7 +97,8 @@ def filters(df: pd.DataFrame) -> pd.DataFrame:
             st.markdown('<span class="live-pill">Live web monitoring enabled</span>', unsafe_allow_html=True)
         st.divider()
         query = st.text_input("Search", placeholder="law, category, authority…")
-        jurisdictions = st.multiselect("Jurisdiction", sorted(df["jurisdiction"].dropna().unique().tolist()) if not df.empty else [])
+        jurisdictions = st.multiselect("Country / jurisdiction", sorted(df["jurisdiction"].dropna().unique().tolist()) if not df.empty else [])
+        levels = st.multiselect("Geographic level", ["EU", "National"])
         domains = st.multiselect("Domain", sorted(df["compliance_domain"].dropna().unique().tolist()) if not df.empty else [])
         impacts = st.multiselect("Impact", IMPACT_ORDER)
         st.divider()
@@ -106,6 +107,8 @@ def filters(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     if jurisdictions:
         out = out[out["jurisdiction"].isin(jurisdictions)]
+    if levels:
+        out = out[out["geographic_level"].isin(levels)]
     if domains:
         out = out[out["compliance_domain"].isin(domains)]
     if impacts:
@@ -113,9 +116,29 @@ def filters(df: pd.DataFrame) -> pd.DataFrame:
     if query.strip() and not out.empty:
         q = query.strip().lower()
         mask = pd.Series(False, index=out.index)
-        for col in ["english_title", "original_title", "authority", "category", "subcategory", "key_changes", "key_obligations"]:
+        for col in ["english_title", "original_title", "authority", "category", "subcategory", "finding_summary", "key_changes", "key_obligations"]:
             mask |= out[col].fillna("").astype(str).str.lower().str.contains(q, regex=False)
         out = out[mask]
+    return out
+
+
+def scope_label(row) -> str:
+    """Human-readable regulatory scope that always names the country for national findings."""
+    level = str(row.get("geographic_level") or "Unknown")
+    jurisdiction = str(row.get("jurisdiction") or "Unknown")
+    if level == "National":
+        return f"National — {jurisdiction}"
+    if level == "EU":
+        return "EU — European Union"
+    return f"{level} — {jurisdiction}"
+
+
+def add_scope_display(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    if not out.empty:
+        out["regulatory_scope"] = out.apply(scope_label, axis=1)
+    else:
+        out["regulatory_scope"] = pd.Series(dtype="object")
     return out
 
 
@@ -170,8 +193,9 @@ def overview(df: pd.DataFrame):
         if df.empty:
             st.info("No live findings match the current filters yet. Use Sources to review automatic source discovery or run a web search immediately.")
         else:
-            display = df[["id", "jurisdiction", "english_title", "category", "business_impact", "compliance_deadline"]].copy()
-            display.columns = ["ID", "Jurisdiction", "Development", "Category", "Impact", "Deadline"]
+            display = add_scope_display(df)[["id", "regulatory_scope", "jurisdiction", "english_title", "category", "business_impact", "compliance_deadline"]].copy()
+            display = display.rename(columns={"regulatory_scope": "Regulatory scope", "jurisdiction": "Country / jurisdiction"})
+            display.columns = ["ID", "Level", "Jurisdiction", "Development", "Category", "Impact", "Deadline"]
             st.dataframe(display.head(12), use_container_width=True, hide_index=True)
             selected = st.selectbox("Open a development", [""] + df["id"].tolist(), format_func=lambda x: "Select…" if x == "" else x)
             if selected:
@@ -205,7 +229,8 @@ def overview(df: pd.DataFrame):
         if d.empty:
             st.caption("No confirmed deadline in the next 12 months for this view.")
         else:
-            st.dataframe(d[["compliance_deadline", "jurisdiction", "english_title", "business_impact"]].head(7), use_container_width=True, hide_index=True)
+            timeline_display = add_scope_display(d)
+            st.dataframe(timeline_display[["compliance_deadline", "regulatory_scope", "english_title", "business_impact"]].head(7).rename(columns={"regulatory_scope": "Regulatory scope"}), use_container_width=True, hide_index=True)
 
     st.divider()
     st.markdown("### AI analysis")
@@ -238,9 +263,10 @@ def developments(df: pd.DataFrame):
     if df.empty:
         st.info("No live findings are available yet.")
         return
-    editable = ["id", "jurisdiction", "english_title", "compliance_domain", "category", "business_impact", "legislative_status", "compliance_deadline", "recommended_follow_up", "user_notes"]
+    editor_df = add_scope_display(df)
+    editable = ["id", "regulatory_scope", "jurisdiction", "english_title", "finding_summary", "compliance_domain", "category", "business_impact", "legislative_status", "compliance_deadline", "recommended_follow_up", "user_notes"]
     edited = st.data_editor(
-        df[editable], use_container_width=True, hide_index=True, disabled=["id"], num_rows="fixed",
+        editor_df[editable], use_container_width=True, hide_index=True, disabled=["id", "regulatory_scope", "jurisdiction"], num_rows="fixed",
         column_config={
             "business_impact": st.column_config.SelectboxColumn(options=IMPACT_ORDER),
             "compliance_domain": st.column_config.SelectboxColumn(options=DOMAINS),
@@ -251,6 +277,7 @@ def developments(df: pd.DataFrame):
         originals = {r["id"]: r for r in df.to_dict("records")}
         for r in edited.to_dict("records"):
             merged = originals[r["id"]].copy()
+            r.pop("regulatory_scope", None)
             merged.update(r)
             upsert_finding(merged, change_type="manual-table")
         st.success("Saved. Previous values remain in change history.")
@@ -267,7 +294,7 @@ def detail(finding_id: str):
         st.rerun()
 
     st.markdown(f"## {rec.get('english_title') or rec.get('original_title')}")
-    st.caption(f"{rec.get('jurisdiction')} · {rec.get('authority')} · {rec.get('legislative_status')}")
+    st.caption(f"{scope_label(rec)} · {rec.get('authority')} · {rec.get('legislative_status')}")
     official, analysis, history = st.tabs(["Official source & facts", "Editable analysis", "Change history"])
 
     with official:
@@ -283,6 +310,8 @@ def detail(finding_id: str):
             st.write("**Effective**", rec.get("effective_date") or "—")
             st.write("**Deadline**", rec.get("compliance_deadline") or "—")
             st.write("**Extraction confidence**", rec.get("confidence_score") if rec.get("confidence_score") is not None else "—")
+        st.write("**Finding summary**")
+        st.write(rec.get("finding_summary") or "No summary is available yet.")
         if rec.get("source_url"):
             st.link_button("Open primary source", rec["source_url"])
         st.write("**Evidence excerpt**")
@@ -296,6 +325,7 @@ def detail(finding_id: str):
             subcategory = c2.text_input("Subcategory", rec.get("subcategory") or "")
             impact = st.selectbox("Business impact", IMPACT_ORDER, index=IMPACT_ORDER.index(rec.get("business_impact")) if rec.get("business_impact") in IMPACT_ORDER else 0)
             status = st.selectbox("Legislative status", STATUSES, index=STATUSES.index(rec.get("legislative_status")) if rec.get("legislative_status") in STATUSES else len(STATUSES) - 1)
+            finding_summary = st.text_area("One-paragraph finding summary", rec.get("finding_summary") or "", height=120)
             key_changes = st.text_area("What changed", rec.get("key_changes") or "", height=90)
             obligations = st.text_area("Key obligations", rec.get("key_obligations") or "", height=90)
             follow = st.text_area("Recommended follow-up", rec.get("recommended_follow_up") or "", height=90)
@@ -304,7 +334,7 @@ def detail(finding_id: str):
             if st.form_submit_button("Save edits", type="primary"):
                 rec.update({
                     "compliance_domain": domain, "category": category, "subcategory": subcategory,
-                    "business_impact": impact, "legislative_status": status, "key_changes": key_changes,
+                    "business_impact": impact, "legislative_status": status, "finding_summary": finding_summary, "key_changes": key_changes,
                     "key_obligations": obligations, "recommended_follow_up": follow,
                     "user_notes": notes, "compliance_deadline": deadline,
                 })
@@ -334,13 +364,14 @@ def detail(finding_id: str):
 
 def sources_page():
     st.markdown("### Sources")
-    st.caption(f"The application automatically searches registered official sources and discovers new candidate sources. Automatic monitoring runs when due (default every {AUTO_WEB_DISCOVERY_INTERVAL_MINUTES} minutes). You can also add sources manually.")
+    st.caption("The tracker scans EU-level sources and every EU Member State, EEA country, Switzerland and the United Kingdom once per week. EU-level and national findings are stored separately. You can also add or override sources manually.")
 
     diagnostics = search_diagnostics()
-    d1, d2, d3 = st.columns(3)
+    d1, d2, d3, d4 = st.columns(4)
     d1.metric("Search provider", diagnostics.get("provider", "Unavailable"))
     d2.metric("Tavily key", "Detected" if diagnostics.get("tavily_configured") else "Not detected")
     d3.metric("Last web findings", diagnostics.get("last_findings", 0))
+    d4.metric("Jurisdictions checked", diagnostics.get("jurisdictions_checked", 0))
     if diagnostics.get("last_error"):
         st.warning("Last monitoring issue: " + str(diagnostics.get("last_error")))
 
@@ -350,7 +381,9 @@ def sources_page():
             try:
                 with st.spinner("Searching official sources and discovering new candidates…"):
                     result = run_live_monitoring(force=True)
-                st.success(f"Web monitoring completed. {result.get('ingestion', {}).get('findings', 0)} relevant source pages were stored/updated.")
+                total = int(result.get('ingestion', {}).get('findings', 0) or 0) + int(result.get('jurisdiction_scan', {}).get('findings', 0) or 0)
+                checked = result.get('jurisdiction_scan', {}).get('jurisdictions_checked', 0)
+                st.success(f"Weekly-style web monitoring completed across {checked} jurisdictions. {total} relevant findings were stored/updated.")
                 refresh()
             except Exception as exc:
                 st.error(f"Web monitoring failed: {exc}")
@@ -446,7 +479,8 @@ def timeline_page(df: pd.DataFrame):
     fig.update_layout(height=max(380, 100 + 40 * d["jurisdiction"].nunique()), margin=dict(l=10, r=10, t=10, b=10))
     brand_plotly(fig)
     st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
-    st.dataframe(d[["compliance_deadline", "jurisdiction", "english_title", "category", "business_impact", "source_url"]], use_container_width=True, hide_index=True)
+    timeline_table = add_scope_display(d)
+    st.dataframe(timeline_table[["compliance_deadline", "regulatory_scope", "english_title", "category", "business_impact", "source_url"]].rename(columns={"regulatory_scope": "Regulatory scope"}), use_container_width=True, hide_index=True)
 
 
 header()

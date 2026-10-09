@@ -123,3 +123,12 @@ The PDF and PowerPoint buttons export the **current Overview view**, using the s
 The Sources page now shows whether the Tavily secret is detected, which search provider was actually used, and any provider error. Use **Test Tavily** to verify the API connection and **Search the web now** to force a fresh monitoring cycle. Adding a Tavily key automatically invalidates the previous DDGS monitoring interval so the next app session searches again immediately.
 
 The Tavily integration uses Bearer authentication and first-class `include_domains` restrictions for registered official sources. Search-result evidence is retained even when an official website blocks a follow-up HTML request.
+
+
+## Weekly EU + national monitoring
+
+The tracker now checks **European Union-level sources plus every EU Member State, the EEA countries (Iceland, Liechtenstein and Norway), Switzerland and the United Kingdom** in every weekly cycle. Findings are explicitly stored as `EU` or `National`, so an EU Regulation/Directive is not presented as though it were a national measure.
+
+Every ingested finding receives a conservative **one-paragraph summary** built only from retrieved source evidence. If the retrieved evidence is too thin, the summary says that the primary source must be reviewed instead of inventing missing details.
+
+The Streamlit application performs a due weekly check when it is active. For a truly unattended scan even when nobody opens the app, add the included `weekly-scan.yml` to `.github/workflows/weekly-scan.yml` in GitHub and add `TAVILY_API_KEY` as a GitHub Actions repository secret. The workflow runs every Monday and commits the updated `compliance.db`, which causes the deployed Streamlit app to pick up the new findings.

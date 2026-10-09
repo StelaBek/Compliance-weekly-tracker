@@ -20,10 +20,11 @@ STATUSES = [
 ]
 
 AUTO_WEB_DISCOVERY = os.environ.get("AUTO_WEB_DISCOVERY", "true").strip().lower() in {"1", "true", "yes", "on"}
-AUTO_WEB_DISCOVERY_INTERVAL_MINUTES = int(os.environ.get("AUTO_WEB_DISCOVERY_INTERVAL_MINUTES", "60"))
+AUTO_WEB_DISCOVERY_INTERVAL_MINUTES = int(os.environ.get("AUTO_WEB_DISCOVERY_INTERVAL_MINUTES", "10080"))  # 7 days
 AUTO_WEB_MAX_RESULTS = int(os.environ.get("AUTO_WEB_MAX_RESULTS", "18"))
 AUTO_WEB_SOURCE_LINKS = int(os.environ.get("AUTO_WEB_SOURCE_LINKS", "12"))
 AUTO_WEB_TIMEOUT_SECONDS = int(os.environ.get("AUTO_WEB_TIMEOUT_SECONDS", "20"))
+AUTO_WEB_RESULTS_PER_JURISDICTION = int(os.environ.get("AUTO_WEB_RESULTS_PER_JURISDICTION", "6"))
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "").strip()
 
 # Queries intentionally stay broad. Final ingestion still requires an official/registered source.
@@ -35,11 +36,41 @@ COMPLIANCE_SEARCH_TERMS = [
     "excise", "registration threshold", "reporting obligation",
 ]
 
-# Used only for discovery prioritisation, never as proof that a result is official.
-JURISDICTIONS = [
-    "European Union", "Austria", "Belgium", "Bulgaria", "Croatia", "Cyprus", "Czechia",
-    "Denmark", "Estonia", "Finland", "France", "Germany", "Greece", "Hungary", "Ireland",
-    "Italy", "Latvia", "Lithuania", "Luxembourg", "Malta", "Netherlands", "Poland",
-    "Portugal", "Romania", "Slovakia", "Slovenia", "Spain", "Sweden", "Iceland",
-    "Liechtenstein", "Norway", "Switzerland", "United Kingdom",
+# Geographic scope: EU-level plus every EU Member State, EEA country, Switzerland and the UK.
+# This registry drives the weekly scan, so every jurisdiction is checked in every scheduled cycle.
+JURISDICTION_REGISTRY = [
+    {"name": "European Union", "level": "EU", "group": "EU"},
+    {"name": "Austria", "level": "National", "group": "EU"},
+    {"name": "Belgium", "level": "National", "group": "EU"},
+    {"name": "Bulgaria", "level": "National", "group": "EU"},
+    {"name": "Croatia", "level": "National", "group": "EU"},
+    {"name": "Cyprus", "level": "National", "group": "EU"},
+    {"name": "Czechia", "level": "National", "group": "EU"},
+    {"name": "Denmark", "level": "National", "group": "EU"},
+    {"name": "Estonia", "level": "National", "group": "EU"},
+    {"name": "Finland", "level": "National", "group": "EU"},
+    {"name": "France", "level": "National", "group": "EU"},
+    {"name": "Germany", "level": "National", "group": "EU"},
+    {"name": "Greece", "level": "National", "group": "EU"},
+    {"name": "Hungary", "level": "National", "group": "EU"},
+    {"name": "Ireland", "level": "National", "group": "EU"},
+    {"name": "Italy", "level": "National", "group": "EU"},
+    {"name": "Latvia", "level": "National", "group": "EU"},
+    {"name": "Lithuania", "level": "National", "group": "EU"},
+    {"name": "Luxembourg", "level": "National", "group": "EU"},
+    {"name": "Malta", "level": "National", "group": "EU"},
+    {"name": "Netherlands", "level": "National", "group": "EU"},
+    {"name": "Poland", "level": "National", "group": "EU"},
+    {"name": "Portugal", "level": "National", "group": "EU"},
+    {"name": "Romania", "level": "National", "group": "EU"},
+    {"name": "Slovakia", "level": "National", "group": "EU"},
+    {"name": "Slovenia", "level": "National", "group": "EU"},
+    {"name": "Spain", "level": "National", "group": "EU"},
+    {"name": "Sweden", "level": "National", "group": "EU"},
+    {"name": "Iceland", "level": "National", "group": "EEA"},
+    {"name": "Liechtenstein", "level": "National", "group": "EEA"},
+    {"name": "Norway", "level": "National", "group": "EEA"},
+    {"name": "Switzerland", "level": "National", "group": "Other"},
+    {"name": "United Kingdom", "level": "National", "group": "Other"},
 ]
+JURISDICTIONS = [item["name"] for item in JURISDICTION_REGISTRY]

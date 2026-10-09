@@ -10,7 +10,7 @@ FINDING_COLUMNS = [
     "original_title","english_title","original_language","publication_date","effective_date",
     "compliance_deadline","legislative_status","instrument_type","compliance_domain","category",
     "subcategory","affected_parties","key_obligations","key_changes","business_impact",
-    "recommended_follow_up","confidence_score","evidence_excerpt","retrieved_at","ai_summary",
+    "recommended_follow_up","confidence_score","evidence_excerpt","retrieved_at","finding_summary","ai_summary",
     "ai_analysis","user_notes"
 ]
 SOURCE_COLUMNS = [
@@ -43,7 +43,7 @@ def init_db(path: Path | str = DB_PATH):
                 effective_date TEXT, compliance_deadline TEXT, legislative_status TEXT, instrument_type TEXT,
                 compliance_domain TEXT, category TEXT, subcategory TEXT, affected_parties TEXT,
                 key_obligations TEXT, key_changes TEXT, business_impact TEXT, recommended_follow_up TEXT,
-                confidence_score REAL, evidence_excerpt TEXT, retrieved_at TEXT, ai_summary TEXT,
+                confidence_score REAL, evidence_excerpt TEXT, retrieved_at TEXT, finding_summary TEXT, ai_summary TEXT,
                 ai_analysis TEXT, user_notes TEXT, updated_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS finding_versions (
@@ -63,6 +63,7 @@ def init_db(path: Path | str = DB_PATH):
         )
         _ensure_column(con, "sources", "discovered_automatically", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(con, "sources", "discovery_reason", "TEXT")
+        _ensure_column(con, "findings", "finding_summary", "TEXT")
 
 
 def _now():

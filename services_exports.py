@@ -129,7 +129,7 @@ def _pdf_dashboard_page(c, df: pd.DataFrame, ai: str, theme: str):
     c.setFont("Helvetica-Bold", 11)
     c.drawString(left_x, 334, "Priority developments")
     _pdf_box(c, left_x, left_y, left_w, left_h, t["surface"], t["border"], 8)
-    headers = [("Jurisdiction", 82), ("Development", 310), ("Impact", 74)]
+    headers = [("Regulatory scope", 112), ("Development", 280), ("Impact", 74)]
     hx = left_x + 10
     for label, width in headers:
         c.setFillColor(HexColor(t["muted"]))
@@ -145,8 +145,8 @@ def _pdf_dashboard_page(c, df: pd.DataFrame, ai: str, theme: str):
             c.line(left_x + 8, row_y - 4, left_x + left_w - 8, row_y - 4)
             c.setFillColor(HexColor(t["text"]))
             c.setFont("Helvetica", 6.5)
-            c.drawString(left_x + 10, row_y + 3, _short(r.get("jurisdiction"), 14))
-            c.drawString(left_x + 94, row_y + 3, _short(r.get("english_title"), 65))
+            c.drawString(left_x + 10, row_y + 3, _short(_scope_text(r), 22))
+            c.drawString(left_x + 124, row_y + 3, _short(r.get("english_title"), 58))
             c.setFillColor(HexColor(PURPLE))
             c.setFont("Helvetica-Bold", 6.5)
             c.drawString(left_x + 407, row_y + 3, _short(r.get("business_impact"), 12))
@@ -186,7 +186,7 @@ def _pdf_dashboard_page(c, df: pd.DataFrame, ai: str, theme: str):
         _pdf_text(c, "No confirmed deadline in the next 12 months for this view.", right_x + 12, 178, 65, size=6.4, color=t["muted"], max_lines=2)
     else:
         first = deadlines.iloc[0]
-        _pdf_text(c, f"{_text(first.get('compliance_deadline'))} · {_short(first.get('jurisdiction'), 18)} · {_short(first.get('english_title'), 42)}", right_x + 12, 179, 63, size=6.2, color=t["text"], max_lines=2)
+        _pdf_text(c, f"{_text(first.get('compliance_deadline'))} · {_short(_scope_text(first), 24)} · {_short(first.get('english_title'), 42)}", right_x + 12, 179, 63, size=6.2, color=t["text"], max_lines=2)
 
     # AI section at the bottom, like the web view.
     c.setStrokeColor(HexColor(t["border"]))
@@ -209,6 +209,16 @@ def _pdf_dashboard_page(c, df: pd.DataFrame, ai: str, theme: str):
         c.setFont("Helvetica", 6.6)
         c.drawString(26, 79, "No AI analysis generated for this view yet.")
 
+
+
+def _scope_text(row) -> str:
+    level = str(row.get("geographic_level") or "Unknown")
+    jurisdiction = str(row.get("jurisdiction") or "Unknown")
+    if level == "National":
+        return f"National — {jurisdiction}"
+    if level == "EU":
+        return "EU — European Union"
+    return f"{level} — {jurisdiction}"
 
 def build_pdf(df: pd.DataFrame, ai_portfolio_analysis: str = "", theme: str = "light") -> bytes:
     """Export the current Overview as a visual dashboard snapshot.
@@ -281,16 +291,16 @@ def _ppt_dashboard_slide(slide, df: pd.DataFrame, ai: str, theme: str):
 
     _ppt_text(slide, .35, 2.72, 4, .22, "Priority developments", 11, True, t["text"])
     _ppt_box(slide, .35, 2.98, 7.42, 2.05, t["surface"], t["border"])
-    _ppt_text(slide, .5, 3.1, 1.2, .15, "Jurisdiction", 6, True, t["muted"])
-    _ppt_text(slide, 1.7, 3.1, 4.55, .15, "Development", 6, True, t["muted"])
+    _ppt_text(slide, .5, 3.1, 1.55, .15, "Regulatory scope", 6, True, t["muted"])
+    _ppt_text(slide, 2.05, 3.1, 4.2, .15, "Development", 6, True, t["muted"])
     _ppt_text(slide, 6.35, 3.1, 1.05, .15, "Impact", 6, True, t["muted"])
     if df.empty:
         _ppt_text(slide, .5, 3.42, 6.7, .35, "No live findings match the current filters yet.", 7, False, t["muted"])
     else:
         y = 3.34
         for _, r in df.head(7).iterrows():
-            _ppt_text(slide, .5, y, 1.15, .18, _short(r.get("jurisdiction"), 14), 6.3, False, t["text"])
-            _ppt_text(slide, 1.7, y, 4.5, .18, _short(r.get("english_title"), 65), 6.3, False, t["text"])
+            _ppt_text(slide, .5, y, 1.5, .18, _short(_scope_text(r), 22), 6.3, False, t["text"])
+            _ppt_text(slide, 2.05, y, 4.15, .18, _short(r.get("english_title"), 58), 6.3, False, t["text"])
             _ppt_text(slide, 6.35, y, 1.05, .18, _short(r.get("business_impact"), 12), 6.3, True, PURPLE)
             y += .23
 
@@ -318,7 +328,7 @@ def _ppt_dashboard_slide(slide, df: pd.DataFrame, ai: str, theme: str):
         _ppt_text(slide, 8.22, 4.7, 4.5, .18, "No confirmed deadline in the next 12 months for this view.", 6.2, False, t["muted"])
     else:
         first = deadlines.iloc[0]
-        _ppt_text(slide, 8.22, 4.67, 4.48, .25, f"{_text(first.get('compliance_deadline'))} · {_short(first.get('jurisdiction'), 18)} · {_short(first.get('english_title'), 38)}", 6.1, False, t["text"])
+        _ppt_text(slide, 8.22, 4.67, 4.48, .25, f"{_text(first.get('compliance_deadline'))} · {_short(_scope_text(first), 24)} · {_short(first.get('english_title'), 38)}", 6.1, False, t["text"])
 
     # Divider and AI section.
     line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(.35), Inches(5.25), Inches(12.63), Inches(.01))

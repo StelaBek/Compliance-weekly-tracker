@@ -17,8 +17,10 @@ from config_settings import (
     AUTO_WEB_MAX_RESULTS,
     AUTO_WEB_SOURCE_LINKS,
     AUTO_WEB_TIMEOUT_SECONDS,
+    AUTO_WEB_RESULTS_PER_JURISDICTION,
     COMPLIANCE_SEARCH_TERMS,
     JURISDICTIONS,
+    JURISDICTION_REGISTRY,
 )
 from db_repository import (
     get_runtime_state,
@@ -38,6 +40,11 @@ OFFICIAL_DOMAIN_HINTS = (
     ".gov.", ".gouv.", ".gv.", ".gov", ".government.", ".bund.de", ".admin.ch",
     ".europa.eu", "europa.eu", "overheid.nl", "officielebekendmakingen.nl",
     "legislation.gov.uk", "service-public.fr", "legifrance.gouv.fr",
+    "fgov.be", "gov.pl", "gov.ie", "gov.mt", "gov.cy", "gov.gr", "gov.si",
+    "gov.sk", "gov.hr", "gov.bg", "gov.ro", "gov.pt", "gov.lv", "gov.lt",
+    "gov.ee", "gov.hu", "gov.cz", "gov.fi", "gov.se", "regjeringen.no",
+    "lovdata.no", "government.is", "llv.li", "boe.es", "gazzettaufficiale.it",
+    "ris.bka.gv.at", "gesetze-im-internet.de", "regeringen.se", "riksdagen.se",
 )
 
 # Terms used only for relevance detection. This deliberately includes common
@@ -146,13 +153,20 @@ def _search_tavily(query: str, max_results: int, include_domains: list[str] | No
     if include_domains:
         payload["include_domains"] = include_domains
         payload["include_domains_mode"] = "restrict"
-    # Current Tavily docs use Bearer auth. Keep the API key out of the request body.
+    # Focus the scheduled monitor on new material. If an older Tavily API version
+    # rejects time_range, retry once without it rather than failing the weekly run.
+    payload["time_range"] = "week"
+    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     response = requests.post(
-        "https://api.tavily.com/search",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json=payload,
+        "https://api.tavily.com/search", headers=headers, json=payload,
         timeout=AUTO_WEB_TIMEOUT_SECONDS,
     )
+    if response.status_code >= 400 and "time_range" in payload:
+        payload.pop("time_range", None)
+        response = requests.post(
+            "https://api.tavily.com/search", headers=headers, json=payload,
+            timeout=AUTO_WEB_TIMEOUT_SECONDS,
+        )
     if response.status_code >= 400:
         detail = response.text[:500]
         raise RuntimeError(f"Tavily HTTP {response.status_code}: {detail}")
@@ -296,6 +310,82 @@ def _evidence_excerpt(text: str) -> str:
     return text[max(0, pos-250):min(len(text), pos+650)].strip()[:900]
 
 
+def _clean_sentence_text(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _one_paragraph_summary(page: dict, source: dict, category: str, domain: str) -> str:
+    """Create a conservative one-paragraph finding summary from retrieved evidence only."""
+    title = _clean_sentence_text(page.get("title"))
+    body = _clean_sentence_text(page.get("text"))
+    # Search-result snippets are already concise source-grounded evidence. Keep the
+    # first few complete sentences instead of asking an LLM to fill missing context.
+    sentences = re.split(r"(?<=[.!?])\s+", body)
+    useful = []
+    title_lower = title.lower()
+    for sentence in sentences:
+        sentence = sentence.strip(" -•\t")
+        if len(sentence) < 35:
+            continue
+        if sentence.lower() == title_lower:
+            continue
+        useful.append(sentence)
+        if len(" ".join(useful)) >= 520 or len(useful) >= 3:
+            break
+    evidence = " ".join(useful).strip()
+    level = "EU-level" if source.get("jurisdiction") == "European Union" else "national-level"
+    jurisdiction = source.get("jurisdiction") or "the relevant jurisdiction"
+    intro = f"This {level} finding for {jurisdiction} concerns {category or domain or 'regulatory compliance'}."
+    if evidence:
+        return (intro + " " + evidence)[:900].strip()
+    if title:
+        return (intro + f" The official-source result is titled “{title}”. Review the cited source for the operative legal text, dates and scope.")[:900]
+    return intro + " Review the cited official source for the operative legal text, dates and scope."
+
+
+def _likely_official_hit(hit: SearchHit, jurisdiction: str) -> bool:
+    """Conservative automated official-source test used for national discovery."""
+    if _looks_official_domain(hit.url):
+        return True
+    text = f"{hit.title} {hit.snippet}".lower()
+    official_clues = [
+        "official gazette", "official journal", "government", "ministry", "parliament",
+        "tax authority", "customs authority", "revenue service", "public administration",
+        "boletín oficial", "gazzetta ufficiale", "journal officiel", "bundesgesetzblatt",
+        "staatsblad", "staatscourant", "regjeringen", "riksdagen", "regeringen",
+    ]
+    return any(clue in text for clue in official_clues)
+
+
+def _source_for_hit(hit: SearchHit, jurisdiction: str, geographic_level: str) -> dict | None:
+    sources = list_sources()
+    if not sources.empty:
+        for row in sources.to_dict("records"):
+            if row.get("jurisdiction") == jurisdiction and _registered_host_match(hit.url, row.get("url") or ""):
+                return row
+    if geographic_level == "EU":
+        host = _host(hit.url)
+        if not (host.endswith("europa.eu") or host.endswith("eur-lex.europa.eu")):
+            return None
+    elif not _likely_official_hit(hit, jurisdiction):
+        return None
+    host = _host(hit.url)
+    if not host:
+        return None
+    sid = "AUTO-" + sha256((jurisdiction + host).encode("utf-8")).hexdigest()[:18].upper()
+    source = {
+        "id": sid, "jurisdiction": jurisdiction, "authority": "Official authority - verify exact issuer",
+        "name": hit.title[:180] or host, "url": f"{urlparse(hit.url).scheme or 'https'}://{host}/",
+        "source_type": "Automatically discovered official-source candidate", "language": "Unknown",
+        "verification_status": "likely official source", "retrieval_method": "Weekly web discovery",
+        "active": True, "last_success": _now(), "last_failure": None, "error_state": None,
+        "last_checked": _now(), "discovered_automatically": True,
+        "discovery_reason": f"Automatically selected during the weekly {jurisdiction} scan because the result showed official/government source signals. Review remains available in Sources.",
+    }
+    upsert_source(source)
+    return source
+
+
 def _finding_from_page(page: dict, source: dict) -> dict | None:
     combined = f"{page.get('title','')} {page.get('text','')}"
     score, category, domain = _relevance(combined)
@@ -315,6 +405,7 @@ def _finding_from_page(page: dict, source: dict) -> dict | None:
         "key_changes": "Live official-source result matched the compliance taxonomy. Review the cited source for the exact legal change.",
         "business_impact": "Informational", "recommended_follow_up": "Review applicability and confirm obligations, dates and scope against the official source.",
         "confidence_score": round(score, 2), "evidence_excerpt": _evidence_excerpt(page.get("text") or ""), "retrieved_at": _now(),
+        "finding_summary": _one_paragraph_summary(page, source, category, domain),
         "ai_summary": "", "ai_analysis": "", "user_notes": "",
     }
 
@@ -393,6 +484,70 @@ def ingest_registered_sources() -> dict:
     return {"findings": findings, "checked_urls": checked_urls, "search_hits": search_hits, "providers": sorted(providers), "errors": errors}
 
 
+def scan_all_jurisdictions() -> dict:
+    """Search every required jurisdiction on every weekly cycle.
+
+    EU results are accepted only from EU institutional domains. National results
+    are tagged National and kept separate from EU-level instruments.
+    """
+    total_findings = 0
+    total_hits = 0
+    providers = set()
+    jurisdiction_reports = []
+    product_query = "product safety packaging ecodesign batteries EPR CE marking digital product passport legislation regulation"
+    tax_query = "VAT indirect tax customs excise e-invoicing digital reporting legislation regulation"
+
+    for item in JURISDICTION_REGISTRY:
+        jurisdiction = item["name"]
+        level = item["level"]
+        before = total_findings
+        queries = []
+        if level == "EU":
+            queries = [
+                f"European Union official journal {product_query}",
+                f"European Union official journal {tax_query}",
+            ]
+        else:
+            queries = [
+                f'official government gazette ministry regulator {product_query} "{jurisdiction}"',
+                f'official government tax customs authority {tax_query} "{jurisdiction}"',
+            ]
+
+        seen_urls = set()
+        for query in queries:
+            hits, provider = web_search(query, max_results=AUTO_WEB_RESULTS_PER_JURISDICTION)
+            providers.add(provider)
+            total_hits += len(hits)
+            for hit in hits:
+                if not hit.url or hit.url in seen_urls:
+                    continue
+                seen_urls.add(hit.url)
+                source = _source_for_hit(hit, jurisdiction, level)
+                if not source:
+                    continue
+                # Force the registry jurisdiction onto auto-discovered sources so
+                # a national result can never be mislabeled as EU-level merely by title.
+                source = dict(source)
+                source["jurisdiction"] = jurisdiction
+                page = _page_from_search_hit(hit)
+                finding = _finding_from_page(page, source)
+                if finding:
+                    finding["geographic_level"] = level
+                    finding["jurisdiction"] = jurisdiction
+                    upsert_finding(finding, change_type="weekly-jurisdiction-scan")
+                    total_findings += 1
+        jurisdiction_reports.append({
+            "jurisdiction": jurisdiction, "geographic_level": level,
+            "findings": total_findings - before, "search_results": len(seen_urls),
+        })
+
+    return {
+        "jurisdictions_checked": len(JURISDICTION_REGISTRY),
+        "findings": total_findings, "search_hits": total_hits,
+        "providers": sorted(providers), "jurisdiction_reports": jurisdiction_reports,
+    }
+
+
 def discover_source_candidates(batch_size: int = 6) -> dict:
     cursor=int(get_runtime_state("source_discovery_cursor", "0") or 0)
     selected=[JURISDICTIONS[(cursor+i)%len(JURISDICTIONS)] for i in range(batch_size)]
@@ -431,8 +586,16 @@ def run_live_monitoring(force: bool=False) -> dict:
             if datetime.now(timezone.utc)-last < timedelta(minutes=AUTO_WEB_DISCOVERY_INTERVAL_MINUTES):
                 return {"ran":False,"reason":"Not due yet","last_sync":last_raw,"provider":current_provider}
         except Exception: pass
-    started=_now(); ingestion=ingest_registered_sources(); discovery=discover_source_candidates(batch_size=6); finished=_now()
-    report={"ran":True,"started":started,"finished":finished,"provider":current_provider,"ingestion":ingestion,"discovery":discovery}
+    started=_now()
+    # 1) Scan already registered sources. 2) Independently scan every jurisdiction
+    # in scope so national coverage does not depend on prior manual source setup.
+    ingestion=ingest_registered_sources()
+    jurisdiction_scan=scan_all_jurisdictions()
+    finished=_now()
+    report={"ran":True,"started":started,"finished":finished,"provider":current_provider,
+            "ingestion":ingestion,"jurisdiction_scan":jurisdiction_scan,
+            "discovery":{"jurisdictions":[r["jurisdiction"] for r in jurisdiction_scan["jurisdiction_reports"]],
+                         "candidates":0,"providers":jurisdiction_scan.get("providers",[])}}
     set_runtime_state("last_live_web_sync", finished); set_runtime_state("last_live_web_provider", current_provider)
     set_runtime_state("last_live_web_report", json.dumps(report, default=str))
     return report
@@ -445,13 +608,14 @@ def last_live_report() -> dict:
 
 
 def search_diagnostics() -> dict:
-    report=last_live_report(); ingestion=report.get("ingestion") or {}
+    report=last_live_report(); ingestion=report.get("ingestion") or {}; scope=report.get("jurisdiction_scan") or {}
     return {
         "provider": get_runtime_state("last_search_provider", "Tavily" if _tavily_key() else "DDGS"),
         "tavily_configured": bool(_tavily_key()),
         "last_error": get_runtime_state("last_search_error", "") or (ingestion.get("errors") or [None])[0],
-        "last_findings": ingestion.get("findings", 0),
-        "last_search_hits": ingestion.get("search_hits", 0),
+        "last_findings": int(ingestion.get("findings", 0) or 0) + int(scope.get("findings", 0) or 0),
+        "last_search_hits": int(ingestion.get("search_hits", 0) or 0) + int(scope.get("search_hits", 0) or 0),
+        "jurisdictions_checked": scope.get("jurisdictions_checked", 0),
         "last_sync": report.get("finished"),
     }
 
