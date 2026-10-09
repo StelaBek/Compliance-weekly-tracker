@@ -1,0 +1,11 @@
+streamlit>=1.39
+pandas>=2.2
+plotly>=5.24
+requests>=2.32
+beautifulsoup4>=4.12
+python-dotenv>=1.0
+github-copilot-sdk>=0.1
+reportlab>=4.2
+python-pptx>=1.0
+ddgs>=9.0
+pytest>=8.3
