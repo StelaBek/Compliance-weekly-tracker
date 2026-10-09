@@ -1,0 +1,29 @@
+name: Weekly compliance scan
+on:
+  schedule:
+    - cron: "15 5 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Scan EU and national jurisdictions
+        run: python weekly_scan.py
+        env:
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          COMPLIANCE_DB_PATH: compliance.db
+          AUTO_WEB_DISCOVERY: "true"
+      - name: Persist updated tracker database
+        run: |
+          git config user.name "compliance-tracker-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add compliance.db
+          git diff --cached --quiet || git commit -m "Weekly compliance scan"
+          git push
